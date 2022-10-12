@@ -1,0 +1,36 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  TAG_BASE: "${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}-${CI_PIPELINE_ID}"
+
+angular_build:
+  stage: build
+  tags:
+    - build-server-prod
+  only:
+    - dev
+  script:
+    - ng config -g cli.warnings.versionMismatch false
+    - export NODE_OPTIONS=--max_old_space_size=10000
+    - npm install
+    - npm run build
+    - export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    - aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+    - sudo docker build --no-cache --build-arg account=$ACCOUNT_ID -t 209111322573.dkr.ecr.us-east-1.amazonaws.com/website:$TAG_BASE .
+    - sudo docker push 209111322573.dkr.ecr.us-east-1.amazonaws.com/website:$TAG_BASE
+
+deploy:
+  stage: deploy
+  tags:
+    - uturn-server
+  only:
+    - dev
+  needs:
+    - angular_build
+  script:
+    - export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    - sleep 20
+    - sudo chmod 777 before_install.sh
+    - sudo ./before_install.sh $TAG_BASE
